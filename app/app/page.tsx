@@ -1,22 +1,45 @@
 import Link from "next/link";
-import { TopNav } from "../components/TopNav";
-import { createClient } from "../../lib/supabase/server";
+import { TopNav } from "../../components/TopNav";
+import { createClient } from "../../../lib/supabase/server";
+import { MuralBox } from "./mural";
 
-export default async function AppHome() {
+function pickProfile(profiles: any) {
+  // Supabase às vezes tipa/retorna join como array; outras como objeto.
+  if (!profiles) return null;
+  return Array.isArray(profiles) ? profiles[0] : profiles;
+}
+
+export default async function MeuPerfil() {
   const supabase = createClient();
   const { data: auth } = await supabase.auth.getUser();
 
-  // Segurança extra: se por algum motivo não houver usuário, o middleware normalmente já barra,
-  // mas isso evita quebra de build/SSR.
   const userId = auth.user?.id;
+  if (!userId) {
+    // O middleware normalmente já barra, mas isso evita quebrar SSR/build.
+    return (
+      <div className="grid" style={{ gap: 18 }}>
+        <TopNav />
+        <div className="card" style={{ padding: 22 }}>
+          <div className="h1" style={{ fontSize: 28 }}>Você não está logado.</div>
+          <p className="p">Volte para entrar.</p>
+          <Link className="btn" href="/entrar">Entrar</Link>
+        </div>
+      </div>
+    );
+  }
 
-  const { data: profile } = userId
-    ? await supabase
-        .from("profiles")
-        .select("username, display_name")
-        .eq("id", userId)
-        .maybeSingle()
-    : { data: null as any };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id,username,display_name,bio")
+    .eq("id", userId)
+    .single();
+
+  const { data: mural } = await supabase
+    .from("profile_posts")
+    .select("id,body,created_at,author_id, profiles(username, display_name)")
+    .eq("profile_id", profile.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   return (
     <div className="grid" style={{ gap: 18 }}>
@@ -24,50 +47,49 @@ export default async function AppHome() {
 
       <div className="card" style={{ padding: 22 }}>
         <div className="h1" style={{ fontSize: 28 }}>
-          Bem-vindo{profile?.display_name ? `, ${profile.display_name}` : ""}.
+          {profile.display_name ?? profile.username}
         </div>
-
-        <p className="p">
-          Aqui não existe “linha do tempo”. Você navega por <b>Grupos</b> e por <b>Perfis</b>.
-        </p>
 
         <div className="row">
-          <Link className="btn" href="/app/grupos">
-            Explorar Grupos
-          </Link>
-          <Link className="btn secondary" href="/app/perfil">
-            Meu Perfil
-          </Link>
+          <span className="badge">@{profile.username}</span>
+          <Link className="btn secondary" href={`/p/${profile.username}`}>Ver público</Link>
         </div>
+
+        <p className="p" style={{ marginTop: 12 }}>
+          {profile.bio ?? "Sem bio ainda."}
+        </p>
+
+        <p className="small">
+          Fotos (1.0): JPG apenas — limite recomendado: 12. (Upload fica para o próximo passo.)
+        </p>
       </div>
 
-      <div className="grid grid2">
-        <div className="card" style={{ padding: 18 }}>
-          <b>Atalhos</b>
-          <div className="hr" />
-          <ul className="p" style={{ margin: 0, paddingLeft: 18 }}>
-            <li>
-              <Link href="/app/grupos" className="kbd">
-                /app/grupos
-              </Link>{" "}
-              — lista e criação de grupos.
-            </li>
-            <li>
-              <Link href="/app/perfil" className="kbd">
-                /app/perfil
-              </Link>{" "}
-              — seu perfil e mural.
-            </li>
-          </ul>
-        </div>
+      <div className="card" style={{ padding: 18 }}>
+        <b>Mural</b>
+        <div className="hr" />
 
-        <div className="card" style={{ padding: 18 }}>
-          <b>Convites (chaves)</b>
-          <div className="hr" />
-          <p className="p" style={{ margin: 0 }}>
-            No starter, as chaves são criadas manualmente na tabela{" "}
-            <span className="kbd">invites</span>. Depois a gente automatiza com “gerar chave”.
-          </p>
+        <MuralBox profileId={profile.id} />
+
+        <div className="hr" />
+        <div className="grid" style={{ gap: 10 }}>
+          {mural?.length ? (
+            mural.map((p: any) => {
+              const prof = pickProfile(p.profiles);
+              const nome = prof?.display_name ?? prof?.username ?? "Usuário";
+              return (
+                <div key={p.id} className="card" style={{ padding: 14 }}>
+                  <div className="small">
+                    <b>{nome}</b> • {new Date(p.created_at).toLocaleString("pt-BR")}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap", marginTop: 8, lineHeight: 1.6 }}>
+                    {p.body}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="p">Ainda não há mensagens no mural.</p>
+          )}
         </div>
       </div>
     </div>
